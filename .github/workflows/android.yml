@@ -1,0 +1,53 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # Works both ways: if project files are in the repo, they are used directly (no unzip).
+      # If only a .zip is uploaded, the newest one is unzipped automatically.
+      - name: Find project
+        run: |
+          SET="$(find . -name settings.gradle.kts -not -path '*/project/*' -not -path '*/build/*' | head -n1)"
+          if [ -z "$SET" ]; then
+            ZIP="$(ls *.zip 2>/dev/null | sort -V | tail -n1)"
+            echo "No project files in repo, unzipping $ZIP"
+            unzip -q "$ZIP" -d project
+            SET="$(find project -name settings.gradle.kts | head -n1)"
+          fi
+          echo "PROJECT_DIR=$(cd "$(dirname "$SET")" && pwd)" >> "$GITHUB_ENV"
+          echo "Project: $(dirname "$SET")"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build debug APK
+        run: |
+          cd "$PROJECT_DIR"
+          gradle :app:assembleDebug --stacktrace --no-daemon
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp app/build/outputs/apk/debug/*.apk "$GITHUB_WORKSPACE/out/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NovaAI-debug-apk
+          path: out/*.apk
+          if-no-files-found: error
+          
